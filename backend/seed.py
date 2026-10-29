@@ -39,7 +39,8 @@ def init_db():
         row = c.execute("SELECT id,pw FROM users WHERE username=?", (username,)).fetchone()
         if row and check_password_hash(row["pw"], old_pw):
             c.execute("UPDATE users SET pw=? WHERE id=?", (generate_password_hash(new_pw), row["id"]))
-    if not c.execute("SELECT 1 FROM users").fetchone() and APP_ENV == "production":
+    demo_mode = os.getenv("ENABLE_DEMO_DATA", "").strip().lower() in ("1", "true", "yes")
+if not c.execute("SELECT 1 FROM users").fetchone() and APP_ENV == "production" and not demo_mode:
         # Never seed public production deployments with well-known demo credentials/data.
         username = (os.getenv("BOOTSTRAP_ADMIN_USERNAME") or "").strip()
         password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or ""
