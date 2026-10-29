@@ -39,38 +39,139 @@ def init_db():
         row = c.execute("SELECT id,pw FROM users WHERE username=?", (username,)).fetchone()
         if row and check_password_hash(row["pw"], old_pw):
             c.execute("UPDATE users SET pw=? WHERE id=?", (generate_password_hash(new_pw), row["id"]))
+    
     demo_mode = os.getenv("ENABLE_DEMO_DATA", "").strip().lower() in ("1", "true", "yes")
-if not c.execute("SELECT 1 FROM users").fetchone() and APP_ENV == "production" and not demo_mode:
+
+    if (
+        not c.execute("SELECT 1 FROM users").fetchone()
+        and APP_ENV == "production"
+        and not demo_mode
+    ):
         # Never seed public production deployments with well-known demo credentials/data.
         username = (os.getenv("BOOTSTRAP_ADMIN_USERNAME") or "").strip()
         password = os.getenv("BOOTSTRAP_ADMIN_PASSWORD") or ""
-        if len(username) < 3 or len(password) < 14 or "replace-with" in password.lower() or "password-at-least" in password.lower():
+
+        if (
+            len(username) < 3
+            or len(password) < 14
+            or "replace-with" in password.lower()
+            or "password-at-least" in password.lower()
+        ):
             c.close()
-            raise RuntimeError("Fresh production database requires BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD (14+ characters)")
-        c.execute("INSERT INTO users(username,pw,role,status) VALUES(?,?,?,'active')", (username, generate_password_hash(password), "admin"))
+            raise RuntimeError(
+                "Fresh production database requires BOOTSTRAP_ADMIN_USERNAME "
+                "and BOOTSTRAP_ADMIN_PASSWORD (14+ characters)"
+            )
+
+        c.execute(
+            "INSERT INTO users(username,pw,role,status) VALUES(?,?,?,'active')",
+            (username, generate_password_hash(password), "admin"),
+        )
         audit(c, "system", "Production bootstrap administrator created; no demo data seeded")
-        c.commit(); c.close(); return
+        c.commit()
+        c.close()
+        return
+
     if not c.execute("SELECT 1 FROM users").fetchone():
-        c.execute("INSERT INTO users(username,pw,role) VALUES(?,?,?)", ("admin", generate_password_hash("Portal!Admin#2026"), "admin"))
-        c.execute("INSERT INTO users(username,pw,role) VALUES(?,?,?)", ("official", generate_password_hash("Aicte!Verify#2026"), "official"))
+        c.execute(
+            "INSERT INTO users(username,pw,role) VALUES(?,?,?)",
+            ("admin", generate_password_hash("Portal!Admin#2026"), "admin"),
+        )
+        c.execute(
+            "INSERT INTO users(username,pw,role) VALUES(?,?,?)",
+            ("official", generate_password_hash("Aicte!Verify#2026"), "official"),
+        )
+
         for k, (n, u) in enumerate(INSTITUTIONS, 1):
-            cur = c.execute("INSERT INTO institutions(name,email,phone,aicte_id) VALUES(?,?,?,?)", (n, f"registrar@{u}.example", f"+9100000000{k:02d}", f"DEMO-AICTE-{k:03d}"))
-            demo_pw = {"greenfield":"Greenfield!FDR#26", "riverside":"Riverside!FDR#26", "lakeview":"Lakeview!FDR#26", "sunrise":"Sunrise!FDR#26", "hilltop":"Hilltop!FDR#26", "northgate":"Northgate!FDR#26", "eastwood":"Eastwood!FDR#26", "westbrook":"Westbrook!FDR#26"}[u]
-            c.execute("INSERT INTO users(username,pw,role,institution_id) VALUES(?,?,?,?)", (u, generate_password_hash(demo_pw), "institution", cur.lastrowid))
-        for k, v in {"desk_email": "verification.desk@aicte.example", "desk_phone": "+910000000101", "regional_email": "regional.officer@aicte.example", "regional_phone": "+910000000102",
-                     "chairman_email": "chairman.office@aicte.example", "chairman_phone": "+910000000103"}.items(): c.execute("INSERT OR IGNORE INTO settings VALUES(?,?)", (k, v))
-        iso = lambda n: (dt.date.today() + dt.timedelta(days=n)).isoformat(); ts = lambda d: f"{iso(min(d, 0))}T10:00:00"  # portal event times
+            cur = c.execute(
+                "INSERT INTO institutions(name,email,phone,aicte_id) VALUES(?,?,?,?)",
+                (n, f"registrar@{u}.example", f"+9100000000{k:02d}", f"DEMO-AICTE-{k:03d}"),
+            )
+            demo_pw = {
+                "greenfield": "Greenfield!FDR#26",
+                "riverside": "Riverside!FDR#26",
+                "lakeview": "Lakeview!FDR#26",
+                "sunrise": "Sunrise!FDR#26",
+                "hilltop": "Hilltop!FDR#26",
+                "northgate": "Northgate!FDR#26",
+                "eastwood": "Eastwood!FDR#26",
+                "westbrook": "Westbrook!FDR#26",
+            }[u]
+            c.execute(
+                "INSERT INTO users(username,pw,role,institution_id) VALUES(?,?,?,?)",
+                (u, generate_password_hash(demo_pw), "institution", cur.lastrowid),
+            )
+
+        for k, v in {
+            "desk_email": "verification.desk@aicte.example",
+            "desk_phone": "+910000000101",
+            "regional_email": "regional.officer@aicte.example",
+            "regional_phone": "+910000000102",
+            "chairman_email": "chairman.office@aicte.example",
+            "chairman_phone": "+910000000103",
+        }.items():
+            c.execute("INSERT OR IGNORE INTO settings VALUES(?,?)", (k, v))
+
+        iso = lambda n: (dt.date.today() + dt.timedelta(days=n)).isoformat()
+        ts = lambda d: f"{iso(min(d, 0))}T10:00:00"
+
         for k, (i, b, n, a, s_, m, st, doc, reg, rf) in enumerate(ROWS, 1):
-            sd = -1 if st == "SUBMITTED" else max(s_, -120)  # day the FDR was submitted on the portal
-            ver = st in ("VERIFIED", "RELEASE_REQ", "RELEASED", "RENEWED") and reg == 1; bs = "VERIFIED" if ver else "MISMATCH" if reg == 2 else "UNCHECKED"
-            conf = json.dumps({"bank": b, "amount": a, "maturity_date": iso(m + (10 if reg == 2 else 0))}) if bs != "UNCHECKED" else None
-            c.execute("INSERT INTO fdrs(institution_id,bank,fdr_number,amount,issue_date,maturity_date,state,bank_status,bank_conf,renewed_from) VALUES(?,?,?,?,?,?,?,?,?,?)", (i, b, n, a, iso(s_), iso(m), st, bs, conf, rf or None))
-            if doc: c.execute("INSERT INTO docs(fdr_id,name,sha256,path,at) VALUES(?,?,?,?,?)", (k, f"FDR_{n}.pdf", hashlib.sha256(n.encode()).hexdigest(), "", ts(sd)))
-            if reg: c.execute("INSERT INTO bank_registry VALUES(?,?,?,?)", (n, b, a * 0.8 if reg == 3 else a, iso(m + (10 if reg == 2 else 0))))
-            ev = [(f"FDR {n} submitted", ts(sd))] + ([("Bank verification: VERIFIED", ts(sd + 1 + k % 3))] if ver else [("Bank verification: MISMATCH", ts(sd + 1 + k % 3))] if reg == 2 else []) \
-                + ([(f"Renewal of {ROWS[rf - 1][2]}", ts(sd))] if rf else []) + ([("Renewed as CB908299", ts(-4))] if st == "RENEWED" else []) \
-                + ([("Release/refund requested", ts(-20))] if st in ("RELEASE_REQ", "RELEASED") else []) + ([("Release APPROVED", ts(-15))] if st == "RELEASED" else [])
-            for e, at in ev: c.execute("INSERT INTO history(fdr_id,action,actor,at) VALUES(?,?,?,?)", (k, e, "seed", at))
-            if st in ("RELEASE_REQ", "RELEASED"): c.execute("INSERT INTO releases(fdr_id,reason,status) VALUES(?,?,?)", (k, "Approval cycle complete; refund requested", "APPROVED" if st == "RELEASED" else "PENDING"))
-        audit(c, "system", "Demo data seeded"); c.commit(); scan(c)
+            sd = -1 if st == "SUBMITTED" else max(s_, -120)
+            ver = st in ("VERIFIED", "RELEASE_REQ", "RELEASED", "RENEWED") and reg == 1
+            bs = "VERIFIED" if ver else "MISMATCH" if reg == 2 else "UNCHECKED"
+            conf = (
+                json.dumps({
+                    "bank": b,
+                    "amount": a,
+                    "maturity_date": iso(m + (10 if reg == 2 else 0)),
+                })
+                if bs != "UNCHECKED"
+                else None
+            )
+
+            c.execute(
+                "INSERT INTO fdrs(institution_id,bank,fdr_number,amount,issue_date,maturity_date,state,bank_status,bank_conf,renewed_from) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (i, b, n, a, iso(s_), iso(m), st, bs, conf, rf or None),
+            )
+
+            if doc:
+                c.execute(
+                    "INSERT INTO docs(fdr_id,name,sha256,path,at) VALUES(?,?,?,?,?)",
+                    (k, f"FDR_{n}.pdf", hashlib.sha256(n.encode()).hexdigest(), "", ts(sd)),
+                )
+
+            if reg:
+                c.execute(
+                    "INSERT INTO bank_registry VALUES(?,?,?,?)",
+                    (n, b, a * 0.8 if reg == 3 else a, iso(m + (10 if reg == 2 else 0))),
+                )
+
+            ev = (
+                [(f"FDR {n} submitted", ts(sd))]
+                + ([("Bank verification: VERIFIED", ts(sd + 1 + k % 3))] if ver
+                   else [("Bank verification: MISMATCH", ts(sd + 1 + k % 3))] if reg == 2
+                   else [])
+                + ([(f"Renewal of {ROWS[rf - 1][2]}", ts(sd))] if rf else [])
+                + ([("Renewed as CB908299", ts(-4))] if st == "RENEWED" else [])
+                + ([("Release/refund requested", ts(-20))] if st in ("RELEASE_REQ", "RELEASED") else [])
+                + ([("Release APPROVED", ts(-15))] if st == "RELEASED" else [])
+            )
+
+            for e, at in ev:
+                c.execute(
+                    "INSERT INTO history(fdr_id,action,actor,at) VALUES(?,?,?,?)",
+                    (k, e, "seed", at),
+                )
+
+            if st in ("RELEASE_REQ", "RELEASED"):
+                c.execute(
+                    "INSERT INTO releases(fdr_id,reason,status) VALUES(?,?,?)",
+                    (k, "Approval cycle complete; refund requested",
+                     "APPROVED" if st == "RELEASED" else "PENDING"),
+                )
+
+        audit(c, "system", "Demo data seeded")
+        c.commit()
+        scan(c)
+
     c.close()
