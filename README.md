@@ -30,17 +30,27 @@ python backend/app.py           ->  http://localhost:8000
 Tests: `python backend/tests/test_api.py` (expects ALL TESTS PASSED).
 Reset demo data: stop server, delete `backend/fdr.db`, start again.
 
-## Demo logins (all institutions are FICTIONAL)
-| Role | Login | Can do |
+## Demo logins (controlled SIH demonstrations only; all institutions and IDs are FICTIONAL)
+| Role | Login | Password |
 |---|---|---|
-| Regulation Official | `official / official123` | verify, remarks, approve/reject release, add FDR for any institution, reports, audit, notification contacts, demo date |
-| Admin | `admin / admin123` | all of the above + onboard institutions and edit their contact details |
-| Institution | `greenfield / greenfield123` (also riverside, lakeview, sunrise, hilltop, northgate, eastwood, westbrook: `<name>123`) | add/edit own unverified FDR, upload, renew, request release, set own contact; sees only own data |
+| AICTE Regulation Official | `official` | `Aicte!Verify#2026` |
+| System Admin | `admin` | `Portal!Admin#2026` |
+| Greenfield Institute | `greenfield` | `Greenfield!FDR#26` |
+| Riverside College | `riverside` | `Riverside!FDR#26` |
+| Lakeview Institute | `lakeview` | `Lakeview!FDR#26` |
+| Sunrise Polytechnic | `sunrise` | `Sunrise!FDR#26` |
+| Hilltop Institute | `hilltop` | `Hilltop!FDR#26` |
+| Northgate Institute | `northgate` | `Northgate!FDR#26` |
+| Eastwood College | `eastwood` | `Eastwood!FDR#26` |
+| Westbrook College | `westbrook` | `Westbrook!FDR#26` |
+
+These are fictional presentation credentials and are intentionally displayed on the demo sign-in screen. Enable `ENABLE_DEMO_DATA=true` only for a controlled SIH judging/demo environment. Because the credentials are public and predictable, do not enable demo mode for a real deployment or store real financial/institutional data in this demo. For a non-demo production deployment, set `ENABLE_DEMO_DATA=false` and use a separately generated bootstrap administrator password and securely provisioned official account.
 
 ## New: registration, themes, OCR
-- **Self-registration:** login page > *Register here*. The institution cannot sign in until an Official/Admin approves it on **Institutions > Registration requests** (rejecting deletes the request so the institution can re-apply). Registrant and verification desk get an email (simulated until SMTP is set). There is no email-ownership verification or CAPTCHA yet (basic per-IP rate limit only); mention this as future scope.
+- **Institution registration and approval workflow:** login page > *Request access*. Applicants provide institution name, AICTE Institute ID / Permanent ID, college code, official email, optional landline, username, and a password of 12+ characters with uppercase, lowercase, number and symbol. Password confirmation is checked server-side and password visibility can be toggled. New accounts remain pending and cannot sign in until an authorized Regulation Official independently reviews the supplied details and approves them on **Institutions > Registration requests**. Admin accounts cannot approve or reject requests. Rejection deletes the request so the institution can re-apply. Notifications are simulated until SMTP is configured. This prototype records the ID but does not automatically query an AICTE registry; the official must verify it independently. Email ownership verification and CAPTCHA are not yet implemented (basic per-IP rate limit only).
 - **Light / Dark theme:** toggle in the top bar and on the login page; the choice is remembered (defaults to your system setting).
-- **Document integrity guard:** uploads are checked against file signatures (not just filename extensions), empty/mismatched files are rejected, and exact duplicate document hashes are flagged to help prevent the same receipt being attached to multiple FDRs. A successful upload returns SHA-256 integrity metadata. This is a duplicate-file safeguard, not proof that a bank issued the document.\n- **OCR:** *FDR Management > + Add FDR > choose a JPG/PNG/PDF*. Bank, FDR number, amount, issue date and maturity date are read from the document and filled in (verify before submitting). Runs in the browser (Tesseract.js, pdf.js), so it needs internet the first time to download the OCR engine; digital PDFs are read directly, scanned PDFs/photos via OCR. If OCR cannot read the file it falls back to the file name (`FDR_SBI_778299_500000.pdf`). Try `docs/samples/sample_fdr_receipt.png`. Accuracy depends on scan quality; always check the filled values.
+- **Document integrity guard:** uploads are checked against file signatures (not just filename extensions), empty/mismatched files are rejected, and exact duplicate document hashes are flagged to help prevent the same receipt being attached to multiple FDRs. A successful upload returns SHA-256 integrity metadata. This is a duplicate-file safeguard, not proof that a bank issued the document.
+- **OCR:** *Institution account > FDR Management > Submit FDR > choose a JPG/PNG/PDF*. Bank, FDR number, amount, issue date and maturity date are read from the document and filled in (verify before submitting). Runs in the browser (Tesseract.js, pdf.js), so it needs internet the first time to download the OCR engine; digital PDFs are read directly, scanned PDFs/photos via OCR. If OCR cannot read the file it falls back to the file name (`FDR_SBI_778299_500000.pdf`). Try `docs/samples/sample_fdr_receipt.png`. Accuracy depends on scan quality; always check the filled values.
 - Tests: `node tests/ocr_parse.js` (parser; verified against real Tesseract output), `node tests/ui_smoke.js` (server running).
 
 ## Email / SMS alerts
@@ -63,17 +73,17 @@ Simulated until configured: bank verification (registry table behind an adapter)
 
 ## Added in the SIH hardening pass
 - **FDR Intelligence** page (`GET /api/intelligence`): deterministic risk factors with human-readable reasons, prioritised review queue, and renewal-chain amount/date checks. Scores are triage support only, not fraud determinations.
-- **Bulk CSV import** (`POST /api/import/fdrs`): validates required columns, dates, amounts, duplicate FDR numbers, row-level outcomes, and institution scoping. Official/admin imports require `institution_id`; institution accounts are always restricted to their own institution. Maximum CSV size is 2 MB.
+- **Bulk CSV import** (`POST /api/import/fdrs`): validates required columns, dates, amounts, duplicate FDR numbers, row-level outcomes, and institution scoping. Only institution accounts can submit or bulk-import FDRs, and records are always assigned to the authenticated institution. Maximum CSV size is 2 MB.
 - **Document signature checks** validate PDF/PNG/JPEG magic bytes as well as the filename extension; exact duplicate SHA-256 uploads are rejected. A hash detects byte-identical files but does not prove authenticity.
 - **Production safety**: set `APP_ENV=production` and a strong `SECRET_KEY`; the app refuses to start with the built-in demo secret. A fresh production database does not receive demo accounts or synthetic FDR records; it requires `BOOTSTRAP_ADMIN_USERNAME` and a `BOOTSTRAP_ADMIN_PASSWORD` of at least 14 characters.
 - Renewal is restricted to bank-verified instruments; release requests require a reason.
 
 ### CSV import format
 ```csv
-bank,fdr_number,amount,issue_date,maturity_date,institution_id
-SBI,DEMO001,100000,2026-01-01,2027-01-01,1
+bank,fdr_number,amount,issue_date,maturity_date
+SBI,DEMO001,100000,2026-01-01,2027-01-01
 ```
-Use ISO dates (`YYYY-MM-DD`). Institution users should omit `institution_id`; their records are automatically assigned to their own institution. Use fictional sample data for demonstrations.
+Use ISO dates (`YYYY-MM-DD`). Only institution accounts can import CSV files; records are automatically assigned to the signed-in institution, and any supplied `institution_id` column is ignored. Use fictional sample data for demonstrations.
 
 ### Deployment reminder
 The local SQLite database and local upload folder are suitable for a prototype, not a multi-instance production service. If deployed on Vercel, the platform sets `VERCEL` and the app treats that as production unless `APP_ENV` is explicitly set; configure the production secret and bootstrap admin environment variables or startup intentionally fails closed. For production, configure a persistent database/storage service, restrict CORS if adding cross-origin clients, use HTTPS, rotate secrets, add backups/retention policies, and integrate a bank only through a formally authorised verification API. The bank registry shipped with this prototype is a demo adapter and must not be described as a live bank connection.

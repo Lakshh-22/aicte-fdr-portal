@@ -27,7 +27,7 @@ def fdr_one(fid):
     f = getf(fid); return jsonify(fd(db(), f, today(db()), True)) if f else nf()
 
 @bp.post("/api/fdrs")
-@auth()
+@auth("institution")
 def fdr_new():
     c, j = db(), request.get_json(silent=True) or {}
     inst = g.u["institution_id"] if g.u["role"] == "institution" else j.get("institution_id")
@@ -44,7 +44,7 @@ def fdr_new():
     c.commit(); return jsonify(id=cur.lastrowid), 201
 
 @bp.post("/api/import/fdrs")
-@auth()
+@auth("institution")
 def import_fdrs():
     """Bulk import validated FDR rows from CSV; invalid rows are reported, not silently skipped."""
     c = db(); fl = request.files.get("file")
@@ -66,11 +66,7 @@ def import_fdrs():
             D(issue); D(maturity)
             if not bank or not number or amount <= 0 or maturity <= issue: raise ValueError("Invalid bank, FDR number, amount, or dates")
             if c.execute("SELECT 1 FROM fdrs WHERE fdr_number=?", (number,)).fetchone(): raise ValueError("Duplicate FDR number")
-            if g.u["role"] == "institution": inst = g.u["institution_id"]
-            else:
-                try: inst = int(row.get("institution_id") or 0)
-                except (ValueError, TypeError): inst = 0
-                if not inst or not c.execute("SELECT 1 FROM institutions WHERE id=?", (inst,)).fetchone(): raise ValueError("Valid institution_id required for official/admin imports")
+            inst = g.u["institution_id"]
             cur = c.execute("INSERT INTO fdrs(institution_id,bank,fdr_number,amount,issue_date,maturity_date) VALUES(?,?,?,?,?,?)", (inst, bank, number, amount, issue, maturity))
             hist(c, cur.lastrowid, g.u["username"], f"FDR {number} imported from CSV")
             created += 1; results.append({"line":line,"fdr_number":number,"status":"created","id":cur.lastrowid})
@@ -80,7 +76,7 @@ def import_fdrs():
     return jsonify(created=created, rejected=len(results)-created, results=results), 200
 
 @bp.post("/api/fdrs/<int:fid>/upload")
-@auth()
+@auth("institution")
 def upload(fid):
     c, f, fl = db(), getf(fid), request.files.get("file")
     if not f: return nf()

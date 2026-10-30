@@ -1,5 +1,5 @@
 """Institutions, maturity scan, demo date, audit log."""
-import os, json, csv, io, time, hashlib, datetime as dt
+import os, json, csv, io, time, hashlib, datetime as dt, re
 import jwt
 from flask import Blueprint, request, jsonify, g, Response
 from werkzeug.utils import secure_filename
@@ -45,11 +45,15 @@ def inst_list():
 @bp.post("/api/institutions")
 @auth("admin")
 def inst_new():
-    c, j = db(), request.get_json(silent=True) or {}; n, u, p = (j.get("name") or "").strip(), (j.get("username") or "").strip().lower(), j.get("password") or ""
-    if len(n) < 3 or len(u) < 3 or len(p) < 6: return jsonify(error="Name, username (3+) and password (6+ chars) required"), 400
-    if c.execute("SELECT 1 FROM institutions WHERE name=?", (n,)).fetchone() or c.execute("SELECT 1 FROM users WHERE username=?", (u,)).fetchone(): return jsonify(error="Institution or username already exists"), 409
-    cur = c.execute("INSERT INTO institutions(name,email,phone) VALUES(?,?,?)", (n, (j.get("email") or "").strip(), (j.get("phone") or "").strip())); c.execute("INSERT INTO users(username,pw,role,institution_id) VALUES(?,?,?,?)", (u, generate_password_hash(p), "institution", cur.lastrowid))
-    audit(c, g.u["username"], f"Institution onboarded: {n}"); c.commit(); return jsonify(id=cur.lastrowid), 201
+    c, j = db(), request.get_json(silent=True) or {}; n, u, p, aid = (j.get("name") or "").strip(), (j.get("username") or "").strip().lower(), j.get("password") or "", (j.get("aicte_id") or "").strip().upper()
+    if len(n) < 3 or not re.fullmatch(r"[a-z0-9_]{3,30}", u) or not re.fullmatch(r"[A-Z0-9][A-Z0-9\-/]{3,39}", aid): return jsonify(error="Institution name, valid username and AICTE Institute ID are required"), 400
+    if len(p) < 12 or not re.search(r"[A-Z]", p) or not re.search(r"[a-z]", p) or not re.search(r"[0-9]", p) or not re.search(r"[^A-Za-z0-9]", p): return jsonify(error="Password must be 12+ characters and include uppercase, lowercase, a number and a symbol"), 400
+    if c.execute("SELECT 1 FROM institutions WHERE lower(name)=lower(?) OR upper(aicte_id)=upper(?)", (n, aid)).fetchone() or c.execute("SELECT 1 FROM users WHERE username=?", (u,)).fetchone(): return jsonify(error="Institution name, AICTE ID or username already exists"), 409
+    college_code = (j.get("college_code") or "").strip().upper()
+    if not re.fullmatch(r"[A-Z0-9][A-Z0-9\-/]{1,29}", college_code): return jsonify(error="Valid college code is required"), 400
+    if c.execute("SELECT 1 FROM institutions WHERE upper(college_code)=upper(?)", (college_code,)).fetchone(): return jsonify(error="College code already exists"), 409
+    cur = c.execute("INSERT INTO institutions(name,email,phone,aicte_id,college_code) VALUES(?,?,?,?,?)", (n, (j.get("email") or "").strip(), (j.get("phone") or "").strip(), aid, college_code)); c.execute("INSERT INTO users(username,pw,role,institution_id,status) VALUES(?,?,?,?, 'pending')", (u, generate_password_hash(p), "institution", cur.lastrowid))
+    audit(c, g.u["username"], f"Institution onboarding request submitted for official review: {n}"); c.commit(); return jsonify(id=cur.lastrowid, status="pending"), 201
 
 @bp.put("/api/institutions/<int:iid>")
 @auth("admin", "institution")
@@ -89,12 +93,12 @@ def ns_test():
     c.commit(); return jsonify(results=res) if res else (jsonify(error="Enter an email or phone number"), 400)
 
 @bp.get("/api/registrations")
-@auth("official", "admin")
+@auth("official")
 def reg_list():
-    return jsonify([dict(r) for r in db().execute("SELECT i.id, i.name, i.email, i.phone, u.username FROM institutions i JOIN users u ON u.institution_id=i.id WHERE u.status='pending' ORDER BY i.id")])
+    return jsonify([dict(r) for r in db().execute("SELECT i.id, i.name, i.email, i.phone, i.aicte_id, i.college_code, u.username FROM institutions i JOIN users u ON u.institution_id=i.id WHERE u.status='pending' ORDER BY i.id")])
 
 @bp.post("/api/registrations/<int:iid>/decide")
-@auth("official", "admin")
+@auth("official")
 def reg_decide(iid):
     c, ok = db(), (request.get_json(silent=True) or {}).get("approve") is True
     r = c.execute("SELECT i.*, u.id uid FROM institutions i JOIN users u ON u.institution_id=i.id WHERE i.id=? AND u.status='pending'", (iid,)).fetchone()

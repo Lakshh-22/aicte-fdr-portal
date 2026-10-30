@@ -5,7 +5,7 @@ os.environ["DB_PATH"] = os.path.join(tempfile.mkdtemp(), "t.db")
 import app as A
 c = A.app.test_client()
 def login(u, p): return {"Authorization": "Bearer " + c.post("/api/login", json={"username": u, "password": p}).get_json()["token"]}
-off, ins = login("official", "official123"), login("greenfield", "greenfield123")
+off, ins = login("official", "Aicte!Verify#2026"), login("greenfield", "Greenfield!FDR#26")
 assert c.post("/api/login", json={"username": "x", "password": "y"}).status_code == 401
 assert c.get("/api/fdrs").status_code == 401
 d = c.get("/api/dashboard", headers=off).get_json(); print("dashboard", {k: d[k] for k in ("active", "expiring", "matured", "pending", "high_risk")})
@@ -30,11 +30,16 @@ print("notifications:", len(c.get("/api/notifications", headers=off).get_json())
 assert c.get("/api/reports/upcoming?fmt=csv", headers=off).data.startswith(b"FDR No")
 print("audit chain intact:", c.get("/api/audit", headers=off).get_json()["intact"])
 print("ALL TESTS PASSED")
-ad = login("admin", "admin123")
+ad = login("admin", "Portal!Admin#2026")
 assert c.get("/api/institutions", headers=off).status_code == 200 and c.get("/api/institutions", headers=ins).status_code == 403
-assert c.post("/api/institutions", headers=ad, json={"name": "Test College", "username": "tcol", "password": "secret1"}).status_code == 201
+assert c.post("/api/fdrs", headers=ad, json={"institution_id": 1, "bank": "SBI", "fdr_number": "ADMINADD1", "amount": 1000, "issue_date": "2026-01-01", "maturity_date": "2027-01-01"}).status_code == 403, "admins must not submit FDRs"
+assert c.post("/api/institutions", headers=ad, json={"name": "Test College", "aicte_id": "TEST-AICTE-1002", "college_code": "TST1002", "username": "tcol", "password": "Test!College2026"}).status_code == 201
+assert c.post("/api/login", json={"username": "tcol", "password": "Test!College2026"}).status_code == 403, "admin-created institutions must remain pending"
+assert c.get("/api/registrations", headers=ad).status_code == 403
+reg_admin_created = [r for r in c.get("/api/registrations", headers=off).get_json() if r["username"] == "tcol"][0]
+assert c.post(f"/api/registrations/{reg_admin_created['id']}/decide", headers=off, json={"approve": True}).status_code == 200
 iid = [i for i in c.get("/api/institutions", headers=off).get_json() if i["name"] == "Test College"][0]["id"]
-assert c.post("/api/fdrs", headers=off, json={"institution_id": iid, "bank": "SBI", "fdr_number": "OFF1", "amount": 1000, "issue_date": "2026-01-01", "maturity_date": "2027-01-01"}).status_code == 201
+assert c.post("/api/fdrs", headers=off, json={"institution_id": iid, "bank": "SBI", "fdr_number": "OFF1", "amount": 1000, "issue_date": "2026-01-01", "maturity_date": "2027-01-01"}).status_code == 403, "only institutions may submit FDRs"
 assert len(c.get("/api/releases", headers=ins).get_json()) >= 1 and "to_verify" in c.get("/api/dashboard", headers=off).get_json()
 print("EXTRA TESTS PASSED")
 
@@ -77,23 +82,26 @@ assert c.get("/api/outbox", headers=off).get_json()[0]["status"] == "simulated",
 print("NOTIFICATION TESTS PASSED")
 
 # ---- self-registration with approval ----
-ok_ = {"name": "Test Reg College", "email": "reg@testcol.test", "phone": "+919999999999", "username": "regcol", "password": "password1"}
+ok_ = {"name": "Test Reg College", "aicte_id": "TEST-AICTE-1001", "college_code": "REG1001", "email": "reg@testcol.test", "phone": "044-23456789", "username": "regcol", "password": "Reg!College2026", "confirm_password": "Reg!College2026"}
 assert c.post("/api/register", json=ok_).status_code == 201
 assert c.post("/api/register", json=ok_).status_code == 409
 assert c.post("/api/register", json={"name": "Bad", "email": "nope", "username": "x", "password": "1"}).status_code == 400
-assert c.post("/api/login", json={"username": "regcol", "password": "password1"}).status_code == 403, "pending users must not sign in"
+assert c.post("/api/register", json=dict(ok_, name="Mismatch College", aicte_id="TEST-AICTE-MISMATCH", college_code="MISM1", username="mismatch", confirm_password="Different!Password2026")).status_code == 400, "confirm password must match"
+assert c.post("/api/register", json=dict(ok_, name="Weak Password College", aicte_id="TEST-AICTE-WEAK", college_code="WEAK1", username="weakpass", password="password123", confirm_password="password123")).status_code == 400, "weak registration passwords must be rejected"
+assert c.post("/api/login", json={"username": "regcol", "password": "Reg!College2026"}).status_code == 403, "pending users must not sign in"
 regs = c.get("/api/registrations", headers=off).get_json(); rid = [x["id"] for x in regs if x["username"] == "regcol"][0]
 assert c.get("/api/registrations", headers=ins).status_code == 403
+assert c.get("/api/registrations", headers=ad).status_code == 403, "only an AICTE official may review registrations"
 assert "Test Reg College" not in [i["name"] for i in c.get("/api/institutions", headers=off).get_json()]
 assert c.get("/api/dashboard", headers=off).get_json()["reg_pending"] >= 1
 assert c.post(f"/api/registrations/{rid}/decide", headers=off, json={"approve": True}).status_code == 200
-lg = c.post("/api/login", json={"username": "regcol", "password": "password1"}); assert lg.status_code == 200
+lg = c.post("/api/login", json={"username": "regcol", "password": "Reg!College2026"}); assert lg.status_code == 200
 assert c.get("/api/dashboard", headers={"Authorization": "Bearer " + lg.get_json()["token"]}).get_json()["total"] == 0
 assert "Test Reg College" in [i["name"] for i in c.get("/api/institutions", headers=off).get_json()]
-assert c.post("/api/register", json=dict(ok_, name="Rejected College", username="rejcol")).status_code == 201
+assert c.post("/api/register", json=dict(ok_, name="Rejected College", aicte_id="TEST-AICTE-1003", college_code="REG1003", username="rejcol")).status_code == 201
 rj = [x["id"] for x in c.get("/api/registrations", headers=off).get_json() if x["username"] == "rejcol"][0]
 assert c.post(f"/api/registrations/{rj}/decide", headers=off, json={"approve": False}).status_code == 200
-assert c.post("/api/login", json={"username": "rejcol", "password": "password1"}).status_code == 401
+assert c.post("/api/login", json={"username": "rejcol", "password": "Reg!College2026"}).status_code == 401
 assert c.get("/api/audit", headers=off).get_json()["intact"]
 print("REGISTRATION TESTS PASSED")
 
@@ -106,6 +114,8 @@ assert "priority_queue" in ij and "disclaimer" in ij and all("risk_reasons" in r
 assert c.get("/api/intelligence", headers=ins).status_code == 200
 csv_data = b"bank,fdr_number,amount,issue_date,maturity_date,institution_id\nSBI,BULKTEST1,100000,2026-01-01,2027-01-01,1\nSBI,BULKTEST2,-1,2026-01-01,2027-01-01,1\nSBI,BULKTEST1,100000,2026-01-01,2027-01-01,1\n"
 imp = c.post("/api/import/fdrs", headers=off, data={"file": (io.BytesIO(csv_data), "import.csv")}, content_type="multipart/form-data")
+assert imp.status_code == 403, "only institutions may bulk-import their own FDRs"
+imp = c.post("/api/import/fdrs", headers=ins, data={"file": (io.BytesIO(csv_data), "import.csv")}, content_type="multipart/form-data")
 assert imp.status_code == 200, imp.data
 assert imp.get_json()["created"] == 1 and imp.get_json()["rejected"] == 2, imp.get_json()
 # Institution imports cannot assign records to a different institution even if a CSV includes an ID.

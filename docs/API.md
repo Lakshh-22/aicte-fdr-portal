@@ -17,13 +17,13 @@
 | POST | /api/scan | official, admin | run maturity scan now |
 | POST | /api/time | official, admin | demo date shift (0-400 days) |
 | GET | /api/audit | official, admin | audit log + chain integrity |
-| GET/POST | /api/institutions | official, admin / admin | list, onboard institution + login |
+| GET/POST | /api/institutions | official/admin list; admin creates pending request | list active institutions; admin onboarding requests remain locked until official approval |
 | PUT | /api/fdrs/{id} | owner / official | edit an unverified FDR (resets verification) |
 | GET | /api/outbox | all (own scope) | email/SMS delivery log |
 | GET/POST | /api/notify_settings | official, admin | desk / Regional Officer / Chairman contacts, channel status |
 | POST | /api/notify_test | official, admin | send a test email / SMS |
 | GET | /api/my_contact | institution | own contact details |
 | PUT | /api/institutions/{id} | admin, own institution | update contact email / phone |
-| POST | /api/register | public | institution self-registration (pending approval, rate-limited) |
-| GET | /api/registrations | official, admin | pending registrations |
-| POST | /api/registrations/{institution_id}/decide | official, admin | `{approve: true/false}` |
+| POST | /api/register | public | institution name, AICTE ID, contact, username and strong password; pending approval, rate-limited |
+| GET | /api/registrations | official only | pending registrations including AICTE Institute ID |
+| POST | /api/registrations/{institution_id}/decide | official only | `{approve: true/false}` after manual check against official AICTE records |

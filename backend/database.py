@@ -4,7 +4,7 @@ from flask import g
 from config import DB
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS institutions(id INTEGER PRIMARY KEY, name TEXT UNIQUE, email TEXT, phone TEXT);
+CREATE TABLE IF NOT EXISTS institutions(id INTEGER PRIMARY KEY, name TEXT UNIQUE, email TEXT, phone TEXT, aicte_id TEXT, college_code TEXT);
 CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, username TEXT UNIQUE, pw TEXT, role TEXT, institution_id INTEGER, status TEXT DEFAULT 'active');
 CREATE TABLE IF NOT EXISTS fdrs(id INTEGER PRIMARY KEY, institution_id INTEGER, bank TEXT, fdr_number TEXT UNIQUE, amount REAL,
   issue_date TEXT, maturity_date TEXT, state TEXT DEFAULT 'SUBMITTED', bank_status TEXT DEFAULT 'UNCHECKED', bank_conf TEXT,
